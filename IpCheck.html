@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<base target="_top">
+<meta charset="utf-8">
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@800&family=Barlow:wght@400;600&display=swap" rel="stylesheet">
+<style>
+  body { margin:0; background:#f4e6cf; color:#4b2a22; font:400 18px/1.55 Barlow,Arial,sans-serif; }
+  .wrap { max-width:480px; margin:0 auto; padding:32px 16px; text-align:center; }
+  h1 { font:800 48px/1 "Barlow Condensed","Arial Narrow",sans-serif; text-transform:uppercase; margin:0 0 16px; }
+  .ip { background:#fffaf2; border-radius:16px; padding:24px; font:600 32px Barlow,Arial,sans-serif; color:#1f5bb5;
+    box-shadow:0 2px 0 rgba(75,42,34,.10),0 10px 20px -10px rgba(75,42,34,.24); word-break:break-all; }
+  p { color:#7a5648; font-size:15px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>IP của mạng này</h1>
+  <div class="ip" id="ip">Đang lấy...</div>
+  <p>Mở trang này khi điện thoại hoặc laptop đang nối wifi trường (tắt 4G). Ghi lại số trên và thử lại vào một ngày khác để xem IP có đổi không.</p>
+</div>
+<script>
+  fetch('https://api.ipify.org?format=json').then(function (r) { return r.json(); })
+    .then(function (j) { document.getElementById('ip').textContent = j.ip; })
+    .catch(function () { document.getElementById('ip').textContent = 'Không lấy được IP'; });
+</script>
+</body>
+</html>
