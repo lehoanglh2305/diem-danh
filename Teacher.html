@@ -46,7 +46,10 @@
   #vLive { text-align:center; }
   #vLive h1 { font-size:40px; margin-bottom:4px; }
   #qrbox { background:#fff; border-radius:16px; padding:16px; display:inline-block; box-shadow:var(--elev2); margin:4px 0 8px; }
-  #qr img, #qr canvas { width:min(46vh, 86vw) !important; height:auto !important; display:block; }
+  #qr img, #qr canvas { width:min(42vh, 86vw) !important; height:auto !important; display:block; }
+  #track { display:block; width:min(640px, 92vw); height:104px; margin:0 auto 4px; }
+  .anim-off #track { display:none; }
+  .anim-off #qr img, .anim-off #qr canvas { width:min(46vh, 86vw) !important; }
   .bar { height:10px; background:var(--sand); border-radius:999px; overflow:hidden; max-width:480px; margin:0 auto 8px; }
   .bar div { height:100%; width:100%; background:var(--cobalt); }
   .row { display:flex; gap:16px; justify-content:center; align-items:center; flex-wrap:wrap; margin-top:8px; }
@@ -118,6 +121,7 @@
     <span class="stamp" id="liveCls"></span>
     <h1>Quét để điểm danh</h1>
     <div id="qrbox"><div id="qr"></div></div>
+    <canvas id="track" aria-hidden="true"></canvas>
     <div class="bar"><div id="barFill"></div></div>
     <div class="hint">Mã mới sau <b id="secs">0</b> giây</div>
     <div class="row">
@@ -130,6 +134,7 @@
     </div>
     <div class="row">
       <button class="ghost" id="bBack">Quay lại</button>
+      <button class="ghost" id="bAnim" aria-pressed="true">Tắt hoạt hình</button>
       <button class="danger" id="bEnd">Kết thúc</button>
     </div>
     <div class="ok-msg" id="okLive" aria-live="polite"></div>
@@ -232,7 +237,9 @@
         MODE = r.mode; CODE = r.code; setCodeUi();
       }).getCode(PIN, id);
     }
+    lastCount = -1; lastUrl = '';
     show('vLive');
+    applyAnim();
     refresh();
     clearInterval(tick);
     tick = setInterval(updateBar, 200);
@@ -261,6 +268,150 @@
     }, 'eLive', $('bNew'));
   };
 
+  /* ===== Đường chạy: bút chì (nhân vật gốc) nhảy qua sách, chồng giấy, ghế ===== */
+  var Runner = (function () {
+    var cv = $('track'), ctx = cv.getContext('2d'), W = 600, H = 104, GROUND = 94;
+    var C = { cocoa: '#4b2a22', cream: '#f4e6cf', cobalt: '#1f5bb5', mocha: '#7a5648', sand: '#d9c3a3',
+      paper: '#fffaf2', grammar: '#ffd23a', reading: '#9fd63c', speaking: '#f07ccb' };
+    var THEMES = [['book', 'stack'], ['chair', 'book'], ['stack', 'chair'], ['book', 'chair', 'stack']];
+    var PX = 80, G = 0.6, JUMP = -8;
+    var y = 0, vy = 0, air = false, spin = 0, t = 0, ground = 0, theme = 0;
+    var obs = [], pops = [], spawnIn = 40, speed = 3.2, last = 0, raf = 0, running = false;
+
+    function size() {
+      var dpr = window.devicePixelRatio || 1;
+      W = cv.clientWidth || 600;
+      cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    }
+    function jump() { if (!air) { vy = JUMP; air = true; } }
+    function spawn() {
+      var list = THEMES[theme % THEMES.length], kind = list[Math.floor(Math.random() * list.length)];
+      var dim = { book: [26, 16], stack: [28, 22], chair: [22, 26] }[kind];
+      obs.push({ kind: kind, x: W + 10, w: dim[0], h: dim[1] });
+      spawnIn = 70 + Math.random() * 80;
+    }
+
+    function drawPencil(fy) {
+      var x = PX, base = GROUND - fy;
+      ctx.save();
+      ctx.translate(x, base - 18);
+      if (spin) ctx.rotate(spin * Math.PI * 2);
+      ctx.translate(0, 18);
+      // chân
+      ctx.strokeStyle = C.cocoa; ctx.lineWidth = 3; ctx.lineCap = 'round';
+      var s = air ? 0.5 : Math.sin(t * 0.35);
+      ctx.beginPath();
+      ctx.moveTo(-3, -8); ctx.lineTo(-3 + s * 6, 0);
+      ctx.moveTo(3, -8); ctx.lineTo(3 - s * 6, 0);
+      ctx.stroke();
+      // thân
+      ctx.fillStyle = C.cobalt; ctx.fillRect(-7, -34, 14, 26);
+      ctx.fillStyle = C.sand; ctx.fillRect(-7, -38, 14, 4);
+      ctx.fillStyle = C.speaking; ctx.fillRect(-7, -8, 14, 3);
+      // đầu chì
+      ctx.fillStyle = C.cream;
+      ctx.beginPath(); ctx.moveTo(-7, -38); ctx.lineTo(7, -38); ctx.lineTo(0, -50); ctx.closePath(); ctx.fill();
+      ctx.fillStyle = C.cocoa;
+      ctx.beginPath(); ctx.moveTo(-2.5, -46); ctx.lineTo(2.5, -46); ctx.lineTo(0, -50); ctx.closePath(); ctx.fill();
+      // mắt
+      ctx.fillStyle = C.paper;
+      ctx.beginPath(); ctx.arc(-2, -28, 3, 0, 7); ctx.arc(4, -28, 3, 0, 7); ctx.fill();
+      ctx.fillStyle = C.cocoa;
+      ctx.beginPath(); ctx.arc(-1, -28, 1.4, 0, 7); ctx.arc(5, -28, 1.4, 0, 7); ctx.fill();
+      ctx.restore();
+    }
+
+    function drawObstacle(o) {
+      var x = o.x, b = GROUND;
+      if (o.kind === 'book') {
+        ctx.fillStyle = C.cocoa; ctx.fillRect(x, b - 16, 26, 16);
+        ctx.fillStyle = C.grammar; ctx.fillRect(x, b - 16, 5, 16);
+        ctx.fillStyle = C.cream; ctx.fillRect(x + 8, b - 11, 14, 2); ctx.fillRect(x + 8, b - 6, 10, 2);
+      } else if (o.kind === 'stack') {
+        var cols = [C.mocha, C.paper, C.reading];
+        for (var i = 0; i < 3; i++) {
+          ctx.fillStyle = cols[i]; ctx.fillRect(x + (i % 2) * 2, b - 7 * (i + 1) - 1, 26, 7);
+          ctx.strokeStyle = C.cocoa; ctx.lineWidth = 1; ctx.strokeRect(x + (i % 2) * 2 + 0.5, b - 7 * (i + 1) - 0.5, 25, 6);
+        }
+      } else {
+        ctx.strokeStyle = C.cocoa; ctx.lineWidth = 3; ctx.lineCap = 'round';
+        ctx.beginPath();
+        ctx.moveTo(x + 2, b - 26); ctx.lineTo(x + 2, b);
+        ctx.moveTo(x + 2, b - 12); ctx.lineTo(x + 20, b - 12);
+        ctx.moveTo(x + 20, b - 12); ctx.lineTo(x + 20, b);
+        ctx.stroke();
+      }
+    }
+
+    function frame(now) {
+      if (!running) return;
+      var f = last ? Math.min(3, (now - last) / 16.67) : 1;
+      last = now; t += f;
+      // vật lý
+      if (air) {
+        vy += G * f; y -= vy * f;
+        if (y <= 0) { y = 0; vy = 0; air = false; }
+      }
+      if (spin) { spin += 0.035 * f; if (spin >= 1) spin = 0; }
+      ground = (ground + speed * f) % 24;
+      spawnIn -= f; if (spawnIn <= 0) spawn();
+      for (var i = obs.length - 1; i >= 0; i--) {
+        var o = obs[i]; o.x -= speed * f;
+        var gap = o.x - (PX + 7);
+        if (gap > 0 && gap < 16) jump();
+        if (o.x + o.w < -10) obs.splice(i, 1);
+      }
+      // vẽ
+      ctx.clearRect(0, 0, W, H);
+      ctx.strokeStyle = C.mocha; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(0, GROUND + 0.5); ctx.lineTo(W, GROUND + 0.5); ctx.stroke();
+      ctx.fillStyle = C.sand;
+      for (var gx = -ground; gx < W; gx += 24) ctx.fillRect(gx, GROUND + 5, 8, 2);
+      obs.forEach(drawObstacle);
+      drawPencil(y);
+      for (var k = pops.length - 1; k >= 0; k--) {
+        var p = pops[k]; p.life -= f; p.y -= 0.6 * f;
+        ctx.globalAlpha = Math.max(0, p.life / 60);
+        ctx.fillStyle = C.cobalt; ctx.font = '800 22px "Barlow Condensed", "Arial Narrow", sans-serif';
+        ctx.textAlign = 'center'; ctx.fillText(p.text, PX + 30, Math.max(22, GROUND - 40 + p.y * 0.5));
+        ctx.globalAlpha = 1;
+        if (p.life <= 0) pops.splice(k, 1);
+      }
+      raf = requestAnimationFrame(frame);
+    }
+
+    return {
+      start: function () {
+        if (running) return;
+        running = true; last = 0; size(); raf = requestAnimationFrame(frame);
+      },
+      stop: function () { running = false; cancelAnimationFrame(raf); obs = []; pops = []; y = 0; air = false; spin = 0; },
+      cheer: function (n) { pops.push({ text: '+' + n, y: 0, life: 60 }); spin = 0.001; jump(); },
+      next: function () { theme++; },
+      resize: function () { if (running) size(); }
+    };
+  })();
+  window.addEventListener('resize', Runner.resize);
+
+  // Bật/tắt hoạt hình (nhớ theo máy, mặc định tắt nếu máy bật giảm chuyển động)
+  var ANIM = (function () {
+    try { var v = localStorage.getItem('dd_anim'); if (v) return v === 'on'; } catch (e) {}
+    return !(window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches);
+  })();
+  function applyAnim() {
+    document.body.classList.toggle('anim-off', !ANIM);
+    $('bAnim').textContent = ANIM ? 'Tắt hoạt hình' : 'Bật hoạt hình';
+    $('bAnim').setAttribute('aria-pressed', String(ANIM));
+    if (ANIM && CUR) Runner.start(); else Runner.stop();
+  }
+  $('bAnim').onclick = function () {
+    ANIM = !ANIM;
+    try { localStorage.setItem('dd_anim', ANIM ? 'on' : 'off'); } catch (e) {}
+    applyAnim();
+  };
+  var lastCount = -1, lastUrl = '';
+
   function refresh() {
     clearTimeout(timer);
     if (!CUR) return;
@@ -269,12 +420,19 @@
       if (CUR !== id) return;
       $('eLive').textContent = '';
       $('cnt').textContent = r.count;
+      if (lastCount >= 0 && r.count > lastCount && ANIM) Runner.cheer(r.count - lastCount);
+      lastCount = r.count;
       period = r.qrSeconds * 1000;
       if (r.status !== 'OPEN') { $('eLive').textContent = 'Buổi này đã kết thúc.'; return; }
-      if (!qrObj) qrObj = new QRCode($('qr'), { text: r.url, width: 512, height: 512, correctLevel: QRCode.CorrectLevel.M });
-      else qrObj.makeCode(r.url);
+      if (r.url !== lastUrl) {
+        if (!qrObj) qrObj = new QRCode($('qr'), { text: r.url, width: 512, height: 512, correctLevel: QRCode.CorrectLevel.M });
+        else qrObj.makeCode(r.url);
+        if (lastUrl) Runner.next();
+        lastUrl = r.url;
+      }
       nextAt = Date.now() + r.msLeft;
-      timer = setTimeout(refresh, r.msLeft + 300);
+      // Cập nhật số điểm danh mỗi 5 giây, và ngay khi mã QR đến hạn đổi
+      timer = setTimeout(refresh, Math.min(r.msLeft + 300, 5000));
     }).withFailureHandler(function (e) {
       if (CUR !== id) return;
       $('eLive').textContent = 'Mất kết nối, đang thử lại. ' + msg(e);
@@ -288,7 +446,7 @@
     $('barFill').style.width = Math.min(100, 100 * left / period) + '%';
   }
 
-  function stopLive() { CUR = null; CODE = ''; hideCode(); store('live', null); clearTimeout(timer); clearInterval(tick); }
+  function stopLive() { CUR = null; CODE = ''; hideCode(); Runner.stop(); store('live', null); clearTimeout(timer); clearInterval(tick); }
 
   $('bBack').onclick = function () {
     stopLive();

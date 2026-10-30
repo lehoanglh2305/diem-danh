@@ -9,6 +9,8 @@ Hệ thống điểm danh chống gian lận cho các lớp tại CMC University
 3. **Kiểm tra wifi trường**: so IP công cộng của điện thoại với IP mạng trường.
 4. **Một điện thoại, một sinh viên**: mỗi máy chỉ điểm danh được cho một mã sinh viên trong mỗi buổi.
 
+Màn hình chiếu QR có thêm đường chạy vui: một chú bút chì (nhân vật gốc) chạy và nhảy qua sách, chồng giấy, ghế; mỗi khi có sinh viên điểm danh, bút chì lộn vòng và hiện số người vừa vào. QR luôn đứng yên để quét dễ. Có nút tắt hoạt hình.
+
 Các trường hợp đáng ngờ vẫn được ghi lại, kèm lý do trong cột Cần xem lại của sheet Attendance.
 
 ## Các file
