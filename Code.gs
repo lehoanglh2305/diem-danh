@@ -97,8 +97,11 @@ function sign_(text) {
   return Utilities.base64EncodeWebSafe(raw).replace(/=+$/, '').slice(0, 16);
 }
 
+// Dau thanh tieng Viet (U+0300 den U+036F), viet bang fromCharCode de file giu nguyen khi sao chep
+var MARKS_ = new RegExp('[' + String.fromCharCode(0x300) + '-' + String.fromCharCode(0x36f) + ']', 'g');
+
 function normalize_(s) {
-  return String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+  return String(s || '').normalize('NFD').replace(MARKS_, '')
     .replace(/đ/g, 'd').replace(/Đ/g, 'D')
     .toLowerCase().replace(/\s+/g, ' ').trim();
 }
