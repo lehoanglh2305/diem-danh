@@ -48,7 +48,8 @@
   #qrbox { background:#fff; border-radius:16px; padding:16px; display:inline-block; box-shadow:var(--elev2); margin:4px 0 8px; }
   #qr img, #qr canvas { width:min(42vh, 86vw) !important; height:auto !important; display:block; }
   #track { display:block; width:min(640px, 92vw); height:104px; margin:0 auto 4px; }
-  .anim-off #track { display:none; }
+  .anim-off #track, .anim-off #leap { display:none; }
+  #leap { position:fixed; left:0; top:0; width:100vw; height:100vh; pointer-events:none; z-index:10; }
   .anim-off #qr img, .anim-off #qr canvas { width:min(46vh, 86vw) !important; }
   .bar { height:10px; background:var(--sand); border-radius:999px; overflow:hidden; max-width:480px; margin:0 auto 8px; }
   .bar div { height:100%; width:100%; background:var(--cobalt); }
@@ -122,6 +123,7 @@
     <h1>Quét để điểm danh</h1>
     <div id="qrbox"><div id="qr"></div></div>
     <canvas id="track" aria-hidden="true"></canvas>
+    <canvas id="leap" aria-hidden="true"></canvas>
     <div class="bar"><div id="barFill"></div></div>
     <div class="hint">Mã mới sau <b id="secs">0</b> giây</div>
     <div class="row">
@@ -274,7 +276,8 @@
     var C = { cocoa: '#4b2a22', cream: '#f4e6cf', cobalt: '#1f5bb5', mocha: '#7a5648', sand: '#d9c3a3',
       paper: '#fffaf2', grammar: '#ffd23a', reading: '#9fd63c', speaking: '#f07ccb' };
     var THEMES = [['book', 'stack'], ['chair', 'book'], ['stack', 'chair'], ['book', 'chair', 'stack']];
-    var PX = 80, G = 0.6, JUMP = -8;
+    var HOME = 80, PX = 80, G = 0.6, JUMP = -8;
+    var lc = $('leap'), lctx = lc.getContext('2d'), leap = null, idle = 0;
     var y = 0, vy = 0, air = false, spin = 0, t = 0, ground = 0, theme = 0;
     var obs = [], pops = [], spawnIn = 40, speed = 3.2, last = 0, raf = 0, running = false;
 
@@ -283,6 +286,8 @@
       W = cv.clientWidth || 600;
       cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      lc.width = Math.round(innerWidth * dpr); lc.height = Math.round(innerHeight * dpr);
+      lctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     }
     function jump() { if (!air) { vy = JUMP; air = true; } }
     function spawn() {
@@ -292,8 +297,9 @@
       spawnIn = 70 + Math.random() * 80;
     }
 
-    function drawPencil(fy) {
-      var x = PX, base = GROUND - fy;
+    function drawPencil(fy) { pencilAt(ctx, PX, GROUND - fy, spin, air); }
+
+    function pencilAt(ctx, x, base, spin, air) {
       ctx.save();
       ctx.translate(x, base - 18);
       if (spin) ctx.rotate(spin * Math.PI * 2);
@@ -344,10 +350,42 @@
       }
     }
 
+    // Nhảy vòng qua mã QR: lên mép trái, vượt phía trên, đáp mép phải (không che ô QR nào)
+    function startLeap() {
+      var q = $('qrbox').getBoundingClientRect(), tr = cv.getBoundingClientRect();
+      if (!q.width || leap || air) return false;
+      var L = q.left - 34, R = q.right + 34, B = tr.top + GROUND, T = q.top - 14;
+      if (L - tr.left < 10 || R > tr.right - 10 || T < 60) return false;
+      leap = { L: L, R: R, B: B, T: T, p: 0, trLeft: tr.left };
+      return true;
+    }
+    function ease(u) { return 1 - Math.pow(1 - u, 2); }
+    function stepLeap(f) {
+      var z = leap; z.p += f / 110;
+      lctx.clearRect(0, 0, innerWidth, innerHeight);
+      var p = Math.min(1, z.p), x, base, sp = 0;
+      if (p < 0.33) {                       // bật lên dọc mép trái
+        var u = ease(p / 0.33); x = z.L; base = z.B - (z.B - z.T) * u;
+      } else if (p < 0.67) {                // vượt qua phía trên, lộn một vòng
+        var v = (p - 0.33) / 0.34; x = z.L + (z.R - z.L) * v; base = z.T - Math.sin(v * Math.PI) * 26; sp = v;
+      } else {                              // rơi xuống mép phải
+        var w = (p - 0.67) / 0.33; x = z.R; base = z.T + (z.B - z.T) * w * w;
+      }
+      pencilAt(lctx, x, base, sp, true);
+      if (p >= 1) {
+        lctx.clearRect(0, 0, innerWidth, innerHeight);
+        PX = z.R - z.trLeft; leap = null;
+      }
+    }
+
     function frame(now) {
       if (!running) return;
       var f = last ? Math.min(3, (now - last) / 16.67) : 1;
       last = now; t += f;
+      if (leap) stepLeap(f);
+      else if (PX > HOME) PX = Math.max(HOME, PX - 1.2 * f);   // chạy chậm lại về chỗ cũ
+      idle += f;
+      if (idle > 1500 && startLeap()) idle = 0;                 // thỉnh thoảng tự nhảy (khoảng 25 giây)
       // vật lý
       if (air) {
         vy += G * f; y -= vy * f;
@@ -359,7 +397,7 @@
       for (var i = obs.length - 1; i >= 0; i--) {
         var o = obs[i]; o.x -= speed * f;
         var gap = o.x - (PX + 7);
-        if (gap > 0 && gap < 16) jump();
+        if (gap > 0 && gap < 16 && !leap) jump();
         if (o.x + o.w < -10) obs.splice(i, 1);
       }
       // vẽ
@@ -369,12 +407,12 @@
       ctx.fillStyle = C.sand;
       for (var gx = -ground; gx < W; gx += 24) ctx.fillRect(gx, GROUND + 5, 8, 2);
       obs.forEach(drawObstacle);
-      drawPencil(y);
+      if (!leap) drawPencil(y);
       for (var k = pops.length - 1; k >= 0; k--) {
         var p = pops[k]; p.life -= f; p.y -= 0.6 * f;
         ctx.globalAlpha = Math.max(0, p.life / 60);
         ctx.fillStyle = C.cobalt; ctx.font = '800 22px "Barlow Condensed", "Arial Narrow", sans-serif';
-        ctx.textAlign = 'center'; ctx.fillText(p.text, PX + 30, Math.max(22, GROUND - 40 + p.y * 0.5));
+        ctx.textAlign = 'center'; ctx.fillText(p.text, Math.min(W - 20, PX + 30), Math.max(22, GROUND - 40 + p.y * 0.5));
         ctx.globalAlpha = 1;
         if (p.life <= 0) pops.splice(k, 1);
       }
@@ -386,8 +424,9 @@
         if (running) return;
         running = true; last = 0; size(); raf = requestAnimationFrame(frame);
       },
-      stop: function () { running = false; cancelAnimationFrame(raf); obs = []; pops = []; y = 0; air = false; spin = 0; },
-      cheer: function (n) { pops.push({ text: '+' + n, y: 0, life: 60 }); spin = 0.001; jump(); },
+      stop: function () { running = false; cancelAnimationFrame(raf); obs = []; pops = []; y = 0; air = false; spin = 0;
+        leap = null; PX = HOME; idle = 0; lctx.clearRect(0, 0, innerWidth, innerHeight); },
+      cheer: function (n) { pops.push({ text: '+' + n, y: 0, life: 60 }); idle = 0; if (!startLeap()) { spin = 0.001; jump(); } },
       next: function () { theme++; },
       resize: function () { if (running) size(); }
     };
