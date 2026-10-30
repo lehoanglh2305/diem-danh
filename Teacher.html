@@ -46,12 +46,18 @@
   #vLive { text-align:center; }
   #vLive h1 { font-size:40px; margin-bottom:4px; }
   #qrbox { background:#fff; border-radius:16px; padding:16px; display:inline-block; box-shadow:var(--elev2); margin:4px 0 8px; }
-  #qr img, #qr canvas { width:min(52vh, 86vw) !important; height:auto !important; display:block; }
+  #qr img, #qr canvas { width:min(46vh, 86vw) !important; height:auto !important; display:block; }
   .bar { height:10px; background:var(--sand); border-radius:999px; overflow:hidden; max-width:480px; margin:0 auto 8px; }
   .bar div { height:100%; width:100%; background:var(--cobalt); }
   .row { display:flex; gap:16px; justify-content:center; align-items:center; flex-wrap:wrap; margin-top:8px; }
   .count { font:400 48px/1 "Playfair Display",Georgia,serif; }
   .count small { display:block; font:700 14px var(--display); letter-spacing:.12em; text-transform:uppercase; color:var(--mocha); margin-top:6px; }
+  .two { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+  @media (max-width:520px) { .two { grid-template-columns:1fr; gap:0; } }
+  .code { min-width:140px; font:800 40px/1 var(--display); letter-spacing:.08em; color:var(--cobalt);
+    background:var(--paper); border:2px dashed var(--mocha); border-radius:16px; padding:8px 16px; }
+  #bPeek { touch-action:none; user-select:none; -webkit-user-select:none; }
+  .ok-msg { color:var(--cobalt); font-weight:600; min-height:24px; margin-top:4px; }
   @media (prefers-reduced-motion: reduce) { * { transition:none !important; } }
 </style>
 </head>
@@ -77,9 +83,27 @@
     <div class="card">
       <label for="cls">Lớp</label>
       <select id="cls"></select>
-      <label for="ans">Đáp án câu hỏi nhanh</label>
-      <input id="ans" type="text" autocomplete="off" placeholder="Ví dụ: sustainable">
-      <div class="hint">Anh đọc câu hỏi trong lớp. Đáp án không hiện trên màn hình.</div>
+      <div class="two">
+        <div>
+          <label for="qrSec">Mã QR đổi sau</label>
+          <select id="qrSec"></select>
+        </div>
+        <div>
+          <label for="mode">Kiểu kiểm tra</label>
+          <select id="mode">
+            <option value="manual">Câu hỏi tự đặt</option>
+            <option value="digits">Mã 4 chữ số</option>
+            <option value="word">Từ tiếng Anh ngẫu nhiên</option>
+            <option value="mix">Mã chữ và số</option>
+          </select>
+        </div>
+      </div>
+      <div id="manualBox">
+        <label for="ans">Đáp án câu hỏi nhanh</label>
+        <input id="ans" type="text" autocomplete="off" placeholder="Ví dụ: sustainable">
+        <div class="hint">Anh đọc câu hỏi trong lớp. Đáp án không hiện trên màn hình.</div>
+      </div>
+      <div id="randomHint" class="hint hidden">Hệ thống tạo mã. Khi chiếu QR, giữ nút Xem mã để đọc mã cho lớp.</div>
       <button class="primary" id="bStart">Bắt đầu</button>
       <div class="err" id="eSetup" role="alert"></div>
       <div class="resume hidden" id="resumeBox">
@@ -98,17 +122,24 @@
     <div class="hint">Mã mới sau <b id="secs">0</b> giây</div>
     <div class="row">
       <div class="count"><span id="cnt">0</span><small>Đã điểm danh</small></div>
+      <div class="row hidden" id="codeRow" style="margin:0">
+        <button class="ghost" id="bPeek" aria-describedby="codeShow">Giữ để xem mã</button>
+        <span class="code" id="codeShow" aria-live="polite">••••</span>
+        <button class="ghost" id="bNew">Đổi mã</button>
+      </div>
     </div>
     <div class="row">
       <button class="ghost" id="bBack">Quay lại</button>
       <button class="danger" id="bEnd">Kết thúc</button>
     </div>
+    <div class="ok-msg" id="okLive" aria-live="polite"></div>
     <div class="err" id="eLive" role="alert"></div>
   </section>
 
 </div>
 <script>
   var PIN = '', CUR = null, qrObj = null, timer = null, tick = null, period = 15000, nextAt = 0;
+  var MODE = 'manual', CODE = '', okTimer = null;
 
   function $(id) { return document.getElementById(id); }
   function show(v) { ['vLogin','vSetup','vLive'].forEach(function (x) { $(x).classList.toggle('hidden', x !== v); }); }
@@ -129,6 +160,12 @@
     period = r.qrSeconds * 1000;
     var sel = $('cls'); sel.innerHTML = '';
     r.classes.forEach(function (c) { var o = document.createElement('option'); o.value = o.textContent = c; sel.appendChild(o); });
+    var qs = $('qrSec'), keep = qs.value || String(r.qrSeconds), choices = (r.qrChoices || [10, 15, 20, 30, 60]).slice();
+    if (choices.indexOf(r.qrSeconds) < 0) choices.push(r.qrSeconds);
+    choices.sort(function (a, b) { return a - b; });
+    qs.innerHTML = '';
+    choices.forEach(function (n) { var o = document.createElement('option'); o.value = n; o.textContent = n + ' giây'; qs.appendChild(o); });
+    qs.value = choices.indexOf(Number(keep)) >= 0 ? keep : String(r.qrSeconds);
     var box = $('resumeList'); box.innerHTML = '';
     $('resumeBox').classList.toggle('hidden', !r.openSessions.length);
     r.openSessions.forEach(function (s) {
@@ -160,24 +197,69 @@
   $('bLogin').onclick = function () { login($('pin').value, false); };
   $('pin').addEventListener('keydown', function (e) { if (e.key === 'Enter') $('bLogin').click(); });
 
+  function syncMode() {
+    var manual = $('mode').value === 'manual';
+    $('manualBox').classList.toggle('hidden', !manual);
+    $('randomHint').classList.toggle('hidden', manual);
+  }
+  $('mode').addEventListener('change', syncMode);
+
   $('bStart').onclick = function () {
-    call('startSession', [PIN, $('cls').value, $('ans').value], function (r) {
+    var opts = { mode: $('mode').value, qrSeconds: Number($('qrSec').value) };
+    call('startSession', [PIN, $('cls').value, $('ans').value, opts], function (r) {
       $('ans').value = '';
-      goLive(r.sessionId, r.cls);
+      goLive(r.sessionId, r.cls, { mode: r.mode, code: r.code });
     }, 'eSetup', $('bStart'));
   };
 
-  function goLive(id, cls) {
+  function setCodeUi() {
+    $('codeRow').classList.toggle('hidden', MODE === 'manual');
+    hideCode();
+  }
+
+  function goLive(id, cls, info) {
     CUR = id;
     store('live', JSON.stringify({ id: id, cls: cls }));
     $('liveCls').textContent = 'Lớp ' + cls;
     $('cnt').textContent = '0';
     $('eLive').textContent = '';
+    $('okLive').textContent = '';
+    if (info) { MODE = info.mode; CODE = info.code; setCodeUi(); }
+    else {
+      MODE = 'manual'; CODE = ''; setCodeUi();
+      google.script.run.withSuccessHandler(function (r) {
+        if (CUR !== id) return;
+        MODE = r.mode; CODE = r.code; setCodeUi();
+      }).getCode(PIN, id);
+    }
     show('vLive');
     refresh();
     clearInterval(tick);
     tick = setInterval(updateBar, 200);
   }
+
+  // Xem mã: chỉ hiện khi đang giữ nút, thả ra là ẩn
+  function showCode() { if (CODE) $('codeShow').textContent = CODE; }
+  function hideCode() { $('codeShow').textContent = '••••'; }
+  var peek = $('bPeek');
+  peek.addEventListener('pointerdown', function (e) { e.preventDefault(); showCode(); });
+  ['pointerup', 'pointerleave', 'pointercancel', 'blur'].forEach(function (ev) { peek.addEventListener(ev, hideCode); });
+  peek.addEventListener('keydown', function (e) { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); showCode(); } });
+  peek.addEventListener('keyup', hideCode);
+  peek.addEventListener('contextmenu', function (e) { e.preventDefault(); });
+
+  $('bNew').onclick = function () {
+    if (!confirm('Đổi mã mới? Sinh viên gửi mã cũ sẽ bị tính Sai đáp án.')) return;
+    var id = CUR;
+    call('newCode', [PIN, id], function (r) {
+      if (CUR !== id) return;
+      CODE = r.code;
+      hideCode();
+      $('okLive').textContent = '✓ Đã đổi mã. Giữ nút để xem mã mới.';
+      clearTimeout(okTimer);
+      okTimer = setTimeout(function () { $('okLive').textContent = ''; }, 5000);
+    }, 'eLive', $('bNew'));
+  };
 
   function refresh() {
     clearTimeout(timer);
@@ -187,6 +269,7 @@
       if (CUR !== id) return;
       $('eLive').textContent = '';
       $('cnt').textContent = r.count;
+      period = r.qrSeconds * 1000;
       if (r.status !== 'OPEN') { $('eLive').textContent = 'Buổi này đã kết thúc.'; return; }
       if (!qrObj) qrObj = new QRCode($('qr'), { text: r.url, width: 512, height: 512, correctLevel: QRCode.CorrectLevel.M });
       else qrObj.makeCode(r.url);
@@ -205,7 +288,7 @@
     $('barFill').style.width = Math.min(100, 100 * left / period) + '%';
   }
 
-  function stopLive() { CUR = null; store('live', null); clearTimeout(timer); clearInterval(tick); }
+  function stopLive() { CUR = null; CODE = ''; hideCode(); store('live', null); clearTimeout(timer); clearInterval(tick); }
 
   $('bBack').onclick = function () {
     stopLive();

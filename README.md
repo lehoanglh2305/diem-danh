@@ -4,8 +4,8 @@ Hệ thống điểm danh chống gian lận cho các lớp tại CMC University
 
 ## Cách chống gian lận
 
-1. **Mã QR động**: mã đổi sau mỗi 15 giây. Ảnh chụp gửi cho bạn ở nhà sẽ hết hạn trước khi dùng được.
-2. **Câu hỏi nhanh**: giáo viên đọc câu hỏi trong lớp, đáp án không hiện trên màn hình.
+1. **Mã QR động**: mã đổi sau mỗi 10, 15, 20, 30 hoặc 60 giây (giáo viên chọn mỗi buổi). Ảnh chụp gửi cho bạn ở nhà sẽ hết hạn trước khi dùng được.
+2. **Câu hỏi nhanh hoặc mã ngẫu nhiên**: giáo viên tự đặt câu hỏi, hoặc để hệ thống tạo mã (4 chữ số, từ tiếng Anh, hoặc chữ lẫn số). Mã chỉ hiện khi giáo viên giữ nút Xem mã, và có thể đổi mã giữa buổi (mã cũ bị loại).
 3. **Kiểm tra wifi trường**: so IP công cộng của điện thoại với IP mạng trường.
 4. **Một điện thoại, một sinh viên**: mỗi máy chỉ điểm danh được cho một mã sinh viên trong mỗi buổi.
 
@@ -38,7 +38,7 @@ Các trường hợp đáng ngờ vẫn được ghi lại, kèm lý do trong c�
 | `CLASSES` | Danh sách lớp, cách nhau bằng dấu phẩy |
 | `ALLOWED_IPS` | IP công cộng của wifi trường |
 | `STRICT_IP` | TRUE: chặn sinh viên ngoài mạng trường. FALSE: vẫn ghi nhận nhưng đánh dấu |
-| `QR_SECONDS` | Số giây mỗi mã QR có hiệu lực (mặc định 15) |
+| `QR_SECONDS` | Thời gian QR mặc định (15). Giáo viên có thể chọn khác ngay trên trang giáo viên |
 | `TICKET_MINUTES` | Số phút sinh viên có để điền form sau khi quét (mặc định 3) |
 
 ## Giới hạn cần biết

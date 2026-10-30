@@ -20,7 +20,7 @@ function setup() {
       ['TICKET_MINUTES', '3', 'Số phút sinh viên có để điền form sau khi quét.']
     ]);
   }
-  ensureSheet_(ss, SH.SESSIONS, ['SessionId', 'Lớp', 'Đáp án', 'Bắt đầu', 'Kết thúc', 'Trạng thái']);
+  ensureSessionCols_(ensureSheet_(ss, SH.SESSIONS, ['SessionId', 'Lớp', 'Đáp án', 'Bắt đầu', 'Kết thúc', 'Trạng thái']));
   ensureSheet_(ss, SH.ATT, ['Thời gian', 'SessionId', 'Lớp', 'Mã SV', 'Họ tên', 'Câu trả lời',
     'Đúng đáp án', 'IP', 'Mạng trường', 'DeviceId', 'Cần xem lại']);
   var stu = ensureSheet_(ss, SH.STUDENTS, ['Mã SV', 'Họ tên', 'Lớp', 'DeviceId', 'Lần đầu']);
@@ -132,7 +132,7 @@ function checkPin_(pin) {
 
 function teacherLogin(pin) {
   var cfg = checkPin_(pin);
-  return { classes: cfg.classes, qrSeconds: cfg.qrSeconds, openSessions: openSessions_() };
+  return { classes: cfg.classes, qrSeconds: cfg.qrSeconds, qrChoices: QR_CHOICES, openSessions: openSessions_() };
 }
 
 function openSessions_() {
@@ -152,35 +152,103 @@ function findSession_(sessionId) {
   var rows = sh.getDataRange().getValues();
   for (var i = 1; i < rows.length; i++) {
     if (rows[i][0] === sessionId) {
-      return { row: i + 1, sessionId: rows[i][0], cls: rows[i][1], answer: rows[i][2], status: rows[i][5], sheet: sh };
+      return { row: i + 1, sessionId: rows[i][0], cls: rows[i][1], answer: rows[i][2], status: rows[i][5],
+        qrSeconds: Number(rows[i][6]) || 0, mode: rows[i][7] || 'manual', sheet: sh };
     }
   }
   return null;
 }
 
-function startSession(pin, cls, answer) {
+/* ======================= MA NGAU NHIEN ======================= */
+
+var QR_CHOICES = [10, 15, 20, 30, 60];
+var CODE_MODES = ['manual', 'digits', 'word', 'mix'];
+var WORDS = ['apple', 'bridge', 'candle', 'castle', 'cloud', 'coffee', 'desert', 'dragon', 'forest', 'garden',
+  'guitar', 'harbor', 'island', 'jacket', 'kettle', 'ladder', 'lemon', 'library', 'market', 'mirror',
+  'monkey', 'orange', 'pencil', 'pepper', 'pillow', 'planet', 'pocket', 'rabbit', 'river', 'rocket',
+  'saddle', 'school', 'shadow', 'silver', 'spider', 'summer', 'sunset', 'tiger', 'ticket', 'tomato',
+  'travel', 'tunnel', 'valley', 'violin', 'wallet', 'window', 'winter', 'yellow', 'basket', 'blanket',
+  'button', 'camera', 'carpet', 'cherry', 'circle', 'cotton', 'dinner', 'doctor', 'engine', 'family',
+  'farmer', 'finger', 'flower', 'friend', 'hammer', 'honest', 'jungle', 'kitchen', 'little', 'magnet',
+  'meadow', 'minute', 'number', 'ocean', 'office', 'parrot', 'people', 'picnic', 'puzzle', 'rainbow',
+  'record', 'safety', 'sister', 'spring', 'stable', 'student', 'sugar', 'table', 'teacher', 'thunder',
+  'turtle', 'village', 'water', 'weather', 'whistle', 'wonder', 'zebra', 'balance', 'brave', 'gentle'];
+var MIX_CHARS = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+
+function rand_(n) { return Math.floor(Math.random() * n); }
+
+function genCode_(mode) {
+  if (mode === 'digits') return String(1000 + rand_(9000));
+  if (mode === 'word') return WORDS[rand_(WORDS.length)];
+  // Chu lan so: 4 ky tu, luon co ca chu va so, bo cac ky tu de nham (0 O 1 I L)
+  var letters = 'ABCDEFGHJKMNPQRSTUVWXYZ', digits = '23456789', out = [];
+  out.push(letters.charAt(rand_(letters.length)), digits.charAt(rand_(digits.length)));
+  while (out.length < 4) out.push(MIX_CHARS.charAt(rand_(MIX_CHARS.length)));
+  for (var i = out.length - 1; i > 0; i--) { var j = rand_(i + 1), t = out[i]; out[i] = out[j]; out[j] = t; }
+  return out.join('');
+}
+
+function ensureSessionCols_(sh) {
+  if (sh.getRange(1, 7).getValue() === '') {
+    sh.getRange(1, 7, 1, 2).setValues([['Giây QR', 'Kiểu mã']]).setFontWeight('bold');
+  }
+  // Giu dap an dang chu (tranh Sheets doi 2E45 thanh so)
+  sh.getRange('C:C').setNumberFormat('@');
+}
+
+function periodOf_(s, cfg) {
+  return (s.qrSeconds || cfg.qrSeconds) * 1000;
+}
+
+function startSession(pin, cls, answer, opts) {
   var cfg = checkPin_(pin);
+  opts = opts || {};
   if (cfg.classes.indexOf(cls) < 0) throw new Error('Lớp không có trong danh sách.');
-  answer = String(answer || '').trim();
+  var mode = CODE_MODES.indexOf(opts.mode) >= 0 ? opts.mode : 'manual';
+  var qr = QR_CHOICES.indexOf(Number(opts.qrSeconds)) >= 0 ? Number(opts.qrSeconds) : cfg.qrSeconds;
+  answer = mode === 'manual' ? String(answer || '').trim() : genCode_(mode);
   if (!answer) throw new Error('Hãy nhập đáp án cho câu hỏi nhanh.');
   var id = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyMMddHHmm') + '_' +
     Utilities.getUuid().replace(/-/g, '').slice(0, 6);
-  SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SH.SESSIONS)
-    .appendRow([id, cls, answer, new Date(), '', 'OPEN']);
-  return { sessionId: id, cls: cls };
+  var sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SH.SESSIONS);
+  ensureSessionCols_(sh);
+  sh.appendRow([id, cls, answer, new Date(), '', 'OPEN', qr, mode]);
+  return { sessionId: id, cls: cls, mode: mode, code: mode === 'manual' ? '' : answer };
+}
+
+function getCode(pin, sessionId) {
+  checkPin_(pin);
+  var s = findSession_(sessionId);
+  if (!s) throw new Error('Không tìm thấy buổi điểm danh.');
+  return { mode: s.mode, code: s.mode === 'manual' ? '' : String(s.answer) };
+}
+
+function newCode(pin, sessionId) {
+  checkPin_(pin);
+  var s = findSession_(sessionId);
+  if (!s) throw new Error('Không tìm thấy buổi điểm danh.');
+  if (s.status !== 'OPEN') throw new Error('Buổi này đã kết thúc.');
+  if (s.mode === 'manual') throw new Error('Buổi này dùng đáp án tự nhập.');
+  var code;
+  do { code = genCode_(s.mode); } while (normalize_(code) === normalize_(s.answer));
+  // Ma cu bi loai ngay: sinh vien gui ma cu se bi danh dau Sai dap an
+  s.sheet.getRange(s.row, 3).setValue(code);
+  return { code: code };
 }
 
 function getQr(pin, sessionId) {
   var cfg = checkPin_(pin);
   var s = findSession_(sessionId);
   if (!s) throw new Error('Không tìm thấy buổi điểm danh.');
-  var period = cfg.qrSeconds * 1000;
+  var period = periodOf_(s, cfg);
   var now = Date.now();
   var slot = Math.floor(now / period);
   var token = slotToken_(sessionId, slot);
   return {
     url: ScriptApp.getService().getUrl() + '?s=' + sessionId + '&t=' + token,
     msLeft: period - (now % period),
+    qrSeconds: period / 1000,
+    mode: s.mode,
     count: countAttendance_(sessionId),
     status: s.status,
     cls: s.cls
@@ -209,7 +277,7 @@ function openScan(sessionId, token, deviceId) {
   var s = findSession_(sessionId);
   if (!s) throw new Error('Mã QR không hợp lệ.');
   if (s.status !== 'OPEN') throw new Error('Buổi điểm danh này đã kết thúc.');
-  var slot = Math.floor(Date.now() / (cfg.qrSeconds * 1000));
+  var slot = Math.floor(Date.now() / periodOf_(s, cfg));
   // Cho phep ma cua khung hien tai va khung lien truoc (de bu do tre mang)
   if (token !== slotToken_(sessionId, slot) && token !== slotToken_(sessionId, slot - 1)) {
     throw new Error('Mã QR đã hết hạn. Hãy quét lại mã đang chiếu trên màn hình.');
